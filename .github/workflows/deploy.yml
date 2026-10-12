@@ -49,7 +49,12 @@ jobs:
             cd ~/$DEPLOY_DIR
             tar -xzf app.tgz && rm app.tgz
             chmod 600 .env
+            docker builder prune -af
+            docker image prune -f
             docker compose up -d --build --remove-orphans
+            docker compose rm -f migrate
+            docker rmi todo-app-migrate || true
+            docker builder prune -af
             docker image prune -f
             docker compose ps
           "

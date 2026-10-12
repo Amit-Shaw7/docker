@@ -21,17 +21,20 @@ services:
 
   # One-shot job: brings the database schema in line with the emitted contract
   migrate:
-    build: .
+    build:
+      context: .
+      target: migrate
     restart: "no"
     environment:
       <<: *database-url
-    command: ["npx", "prisma", "db", "update"]
     depends_on:
       db:
         condition: service_healthy
 
   app:
-    build: .
+    build:
+      context: .
+      target: app
     restart: unless-stopped
     environment:
       <<: *database-url
