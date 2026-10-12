@@ -1,0 +1,55 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_DIR: todo-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Create .env for compose
+        run: |
+          umask 077
+          cat > .env.deploy <<'EOT'
+          POSTGRES_USER=${{ vars.POSTGRES_USER || 'postgres' }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=${{ vars.POSTGRES_DB || 'postgres' }}
+          APP_PORT=${{ vars.PORT || '5000' }}
+          EOT
+
+      - name: Copy files to EC2
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}"
+          tar --exclude=.git --exclude=node_modules --exclude=.env --exclude=.env.deploy -czf /tmp/app.tgz .
+          $SSH "mkdir -p ~/$DEPLOY_DIR"
+          scp -i ~/.ssh/deploy_key /tmp/app.tgz "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:$DEPLOY_DIR/app.tgz"
+          scp -i ~/.ssh/deploy_key .env.deploy "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:$DEPLOY_DIR/.env"
+
+      - name: Build and start containers
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}" "
+            set -e
+            cd ~/$DEPLOY_DIR
+            tar -xzf app.tgz && rm app.tgz
+            chmod 600 .env
+            docker compose up -d --build --remove-orphans
+            docker image prune -f
+            docker compose ps
+          "
